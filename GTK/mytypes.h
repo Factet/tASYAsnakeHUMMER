@@ -1,4 +1,5 @@
 // mytypes.h
+#include <ostream>
 
 #ifndef max
     #define max(a,b) ((a)>(b) ? (a) : (b))
@@ -147,4 +148,3 @@ typedef struct _SCROLLINFO
     double dx;
     double dy;
 } * SCROLLINFO;
-
