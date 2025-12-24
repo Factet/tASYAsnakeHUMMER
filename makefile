@@ -3,12 +3,12 @@ LIB = libgui3.a
 SRCS = button.cc edit.cc GUI.cc image.cc list.cc scroll.cc text.cc window.cc
 HEADERS = button.h context.h edit.h GUI.h image.h list.h mytypes.h scroll.h text.h window.h
 OBJS = $(addprefix obj/,$(SRCS:.cc=.o))
-CC = g++ -I./include
+CC = g++ -I./include -I./GTK
 CFLAGS = -g `pkg-config --cflags gtk+-3.0` -std=c++11
 LDFLAGS = `pkg-config --libs gtk+-3.0` # -fsanitize=leak
 
 # examples
-EXAMPLES = browse bspline calc clock myprog quad view
+EXAMPLES = browse bspline calc clock myprog quad view snake
 
 BROWSE_SRCS = browse.cc
 BROWSE_OBJS = $(addprefix obj/,$(BROWSE_SRCS:.cc=.o))
@@ -65,13 +65,9 @@ view: $(LIB) $(VIEW_OBJS)
 
 clean:
 	rm $(LIB) $(EXAMPLES) obj/*
-	
-EXAMPLES = browse bspline calc clock myprog quad view
-EXAMPLES = browse bspline calc clock myprog quad view snake
 
 SNAKE_SRCS = snake.cc
 SNAKE_OBJS = $(addprefix obj/,$(SNAKE_SRCS:.cc=.o))
 
 snake: $(LIB) $(SNAKE_OBJS)
 	$(CC) $(SNAKE_OBJS) $(LIB) -o snake $(LDFLAGS)
-

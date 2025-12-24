@@ -1,335 +1,667 @@
-// examples/snake.cc
-#include <deque>
-#include <random>
-#include "window.h"
-#include "text.h"
-#include "button.h"
-#include "GUI.h"
+#include <gtk/gtk.h>
+#include <cstdlib>
+#include <ctime>
+#include <cmath>
+#include <cstdio>
 
-// ---- размеры поля/окна ----
-#define CELL    20
-#define GRID_W  20
+#include "../GTK/context.h"
+#include "../GTK/mytypes.h"
+
+// -------------------------------------------------
+//  ПАРАМЕТРЫ ПОЛЯ И ОКНА
+// -------------------------------------------------
+
+#define GRID_W  15
 #define GRID_H  15
-#define WIN_W   (GRID_W*CELL)
-#define WIN_H   (GRID_H*CELL)
+#define CELL    40
 
-// ---- цвета ----
-#define MENU_BG        RGB(0.25, 0.65, 0.25)
-#define FIELD_LIGHT    RGB(0.63, 0.85, 0.63)
-#define FIELD_DARK     RGB(0.46, 0.74, 0.46)
-#define SNAKE_HEAD     RGB(0.10, 0.50, 0.80)
-#define SNAKE_BODY     RGB(0.55, 0.80, 0.93)
-#define FOOD_RED       RGB(0.88, 0.12, 0.12)
-#define FOOD_GREEN     RGB(0.10, 0.60, 0.10)
+#define FIELD_W (GRID_W * CELL)
+#define FIELD_H (GRID_H * CELL)
 
-// ---- события ----
-enum UserEventType {
-    EVENT_START = 1001,
-    EVENT_RETRY,
-    EVENT_SCORE_CHANGED,
-    EVENT_GAME_OVER,
-    EVENT_GAME_WIN
+#define WIN_W   700
+#define WIN_H   800
+
+#define TIMER_MS 150
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
+// -------------------------------------------------
+//  ЦВЕТА
+// -------------------------------------------------
+
+static const RGB COL_WINDOW_BG   = RGB(0.7, 0.7, 0.7);
+static const RGB COL_FIELD_LIGHT = RGB(0.80, 0.92, 0.80);
+static const RGB COL_FIELD_DARK  = RGB(0.60, 0.85, 0.60);
+static const RGB COL_FIELD_FRAME = RGB(0.0, 0.0, 0.0);
+static const RGB COL_SNAKE_BODY  = RGB(0.35, 0.70, 1.00);
+static const RGB COL_SNAKE_HEAD  = RGB(0.10, 0.45, 0.90);
+static const RGB COL_FOOD        = RGB(0.90, 0.20, 0.20);
+
+// -------------------------------------------------
+//  НАПРАВЛЕНИЯ И СОСТОЯНИЕ
+// -------------------------------------------------
+
+enum Direction
+{
+    DIR_UP = 0,
+    DIR_DOWN,
+    DIR_LEFT,
+    DIR_RIGHT
 };
 
-enum class GameState { Menu, Playing, Paused, GameOver, Win };
-enum Dir { Up, Right, Down, Left };
+struct GameState
+{
+    GtkWidget *window;
+    GtkWidget *drawing_area;
+    GtkWidget *title_label;
+    GtkWidget *score_label;
+    GtkWidget *pause_label;
+    GtkWidget *start_button;
+    GtkWidget *restart_button;
 
-class Board;
+    int       snakeX[GRID_W * GRID_H];
+    int       snakeY[GRID_W * GRID_H];
+    int       snakeLen;
+    Direction dir;
 
-// -------------------- MainWindow --------------------
-class MainWindow : public Window {
-public:
-    MainWindow(){ m_ClassName = __FUNCTION__; }
-    void OnCreate() override;
-    void OnDraw(Context* cr) override;
-    bool OnKeyPress(uint64_t key) override;
-    void OnNotify(Window* child, uint32_t type, const Point& pos) override;
+    bool      gameOver;
+    bool      paused;
+    bool      inMenu;
 
-private:
-    void ShowMenu();
-    void StartGame();
-    void ShowEnd(bool win);
-    void UpdateScore(int s);
+    int       foodX;
+    int       foodY;
 
-    GameState m_state{GameState::Menu};
-    int       m_score{0};
+    int       score;
 
-    Text*       m_title{};
-    Text*       m_tip{};
-    Text*       m_scoreText{};
-    TextButton* m_btnStart{};
-    TextButton* m_btnRetry{};
-    Board*      m_board{};
+    bool      shake;
+    int       shakeTicks;
+    int       shakeMaxTicks;
+    int       shakeDX;
+    int       shakeDY;
+
+    int       fieldLeft;
+    int       fieldTop;
 };
 
-// ----------------------- Board -----------------------
-class Board : public Window {
-public:
-    Board(){ m_ClassName = __FUNCTION__; }
-    void OnDraw(Context* cr) override;
-    bool OnKeyPress(uint64_t key) override;
-    bool OnTimeout() override;
+// -------------------------------------------------
+//  ПРОТОТИПЫ
+// -------------------------------------------------
 
-    void Reset();
-    void Pause(bool v){ m_paused=v; }
-    int  Score() const { return m_score; }
+static gboolean on_draw(GtkWidget *widget, cairo_t *cr, gpointer user_data);
+static gboolean on_timeout(gpointer user_data);
+static gboolean on_key_press(GtkWidget *widget, GdkEventKey *event, gpointer user_data);
+static gboolean on_button_press(GtkWidget *widget, GdkEventButton *, gpointer user_data);
+static void     on_start(GtkButton *, gpointer user_data);
+static void     on_restart(GtkButton *, gpointer user_data);
 
-private:
-    void Step();
-    void SpawnFood();
-    bool Occupied(int x,int y) const;
-    void DrawEyes(Context* cr) const;
-    void DrawFood(Context* cr) const;
+static void StartGame(GameState *state);
+static void GameOver(GameState *state);
+static void PlaceFood(GameState *state);
+static void MoveSnake(GameState *state);
+static void CheckCollision(GameState *state);
+static void LayoutPause(GameState *state);
+static void UpdateScore(GameState *state);
 
-    std::deque<Point> m_snake;
-    Dir    m_dir{Right};
-    Dir    m_next{Right};
-    Point  m_food{0,0};
-    int    m_score{0};
-    bool   m_paused{false};
-    uint16_t m_stepMs{120};
-    std::mt19937 m_rng{std::random_device{}()};
-};
+static void DrawField(GameState *state, Context *cr);
+static void DrawSnake(GameState *state, Context *cr);
+static void DrawFood(GameState *state, Context *cr);
+static void DrawBerry(Context *cr, int cx, int cy, int size);
 
-// ==================== MainWindow ====================
+// -------------------------------------------------
+//  MAIN
+// -------------------------------------------------
 
-void MainWindow::OnCreate() {
-    SetBackColor(MENU_BG);
+int main(int argc, char **argv)
+{
+    std::srand(std::time(nullptr));
 
-    m_title = new Text(L"ЗМЕЙКА");
-    m_title->SetFont("DejaVu Sans", 24, -1, -1);
-    m_title->SetAlignment(TEXT_ALIGNH_CENTER|TEXT_ALIGNV_CENTER);
-    AddChild(m_title, Point(0, WIN_H/6), Rect(WIN_W, 40));
+    gtk_init(&argc, &argv);
 
-    m_tip = new Text(L"Управление: стрелки — движение, P — пауза, Esc — меню");
-    m_tip->SetFont("DejaVu Sans", 12, -1, -1);
-    m_tip->SetAlignment(TEXT_ALIGNH_CENTER|TEXT_ALIGNV_CENTER);
-    AddChild(m_tip, Point(0, WIN_H - 40), Rect(WIN_W, 24));
+    GameState *state = new GameState();
+    state->window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    gtk_window_set_title(GTK_WINDOW(state->window), "Змейка (GTK3)");
+    gtk_window_set_default_size(GTK_WINDOW(state->window), WIN_W, WIN_H);
+    gtk_container_set_border_width(GTK_CONTAINER(state->window), 10);
 
-    m_scoreText = new Text(L"Счёт: 0");
-    m_scoreText->SetFont("DejaVu Sans", 12, -1, -1);
-    m_scoreText->Hide();
-    AddChild(m_scoreText, Point(WIN_W-120, 6), Rect(114, 18));
+    GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+    gtk_container_add(GTK_CONTAINER(state->window), vbox);
 
-    m_btnStart = new TextButton("ПУСК", EVENT_START);
-    AddChild(m_btnStart, Point((WIN_W-140)/2, WIN_H/2-18), Rect(140,36));
+    state->title_label = gtk_label_new(nullptr);
+    gtk_widget_set_halign(state->title_label, GTK_ALIGN_CENTER);
+    gtk_label_set_markup(GTK_LABEL(state->title_label),
+                         "<span font_desc=\"32\" weight=\"bold\">ЗМЕЙКА</span>");
+    gtk_box_pack_start(GTK_BOX(vbox), state->title_label, FALSE, FALSE, 0);
 
-    m_btnRetry = new TextButton("СЫГРАТЬ ЕЩЁ", EVENT_RETRY);
-    m_btnRetry->Hide();
-    AddChild(m_btnRetry, Point((WIN_W-180)/2, WIN_H/2+24), Rect(180,36));
+    state->score_label = gtk_label_new("score: 0");
+    gtk_widget_set_halign(state->score_label, GTK_ALIGN_CENTER);
+    gtk_label_set_markup(GTK_LABEL(state->score_label),
+                         "<span font_desc=\"20\">score: 0</span>");
+    gtk_box_pack_start(GTK_BOX(vbox), state->score_label, FALSE, FALSE, 0);
+    gtk_widget_hide(state->score_label);
 
-    m_board = new Board();
-    m_board->Hide();
-    AddChild(m_board, Point(0,0), Rect(WIN_W,WIN_H));
+    GtkWidget *overlay = gtk_overlay_new();
+    gtk_box_pack_start(GTK_BOX(vbox), overlay, TRUE, TRUE, 0);
 
-    CaptureKeyboard(this);
+    state->drawing_area = gtk_drawing_area_new();
+    gtk_widget_set_hexpand(state->drawing_area, TRUE);
+    gtk_widget_set_vexpand(state->drawing_area, TRUE);
+    gtk_widget_set_size_request(state->drawing_area, FIELD_W + 40, FIELD_H + 40);
+    gtk_widget_add_events(state->drawing_area, GDK_BUTTON_PRESS_MASK);
+    gtk_widget_set_can_focus(state->drawing_area, TRUE);
+    gtk_container_add(GTK_CONTAINER(overlay), state->drawing_area);
+
+    state->pause_label = gtk_label_new(nullptr);
+    gtk_label_set_markup(GTK_LABEL(state->pause_label),
+                         "<span font_desc=\"28\" weight=\"bold\">ПАУЗА</span>");
+    gtk_widget_set_halign(state->pause_label, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(state->pause_label, GTK_ALIGN_CENTER);
+    gtk_overlay_add_overlay(GTK_OVERLAY(overlay), state->pause_label);
+    gtk_overlay_set_overlay_pass_through(GTK_OVERLAY(overlay), state->pause_label, TRUE);
+    gtk_widget_hide(state->pause_label);
+
+    state->start_button = gtk_button_new_with_label("СТАРТ");
+    gtk_widget_set_halign(state->start_button, GTK_ALIGN_CENTER);
+    gtk_widget_set_size_request(state->start_button, 220, 60);
+    gtk_box_pack_start(GTK_BOX(vbox), state->start_button, FALSE, FALSE, 0);
+
+    state->restart_button = gtk_button_new_with_label("Сыграть ещё");
+    gtk_widget_set_halign(state->restart_button, GTK_ALIGN_CENTER);
+    gtk_widget_set_size_request(state->restart_button, 200, 40);
+    gtk_box_pack_start(GTK_BOX(vbox), state->restart_button, FALSE, FALSE, 0);
+    gtk_widget_hide(state->restart_button);
+
+    g_signal_connect(state->window, "destroy", G_CALLBACK(gtk_main_quit), nullptr);
+    g_signal_connect(state->window, "key-press-event", G_CALLBACK(on_key_press), state);
+    g_signal_connect(state->drawing_area, "draw", G_CALLBACK(on_draw), state);
+    g_signal_connect(state->drawing_area, "button-press-event", G_CALLBACK(on_button_press), state);
+    g_signal_connect(state->start_button, "clicked", G_CALLBACK(on_start), state);
+    g_signal_connect(state->restart_button, "clicked", G_CALLBACK(on_restart), state);
+
+    g_timeout_add(TIMER_MS, on_timeout, state);
+
+    state->inMenu    = true;
+    state->gameOver  = false;
+    state->paused    = false;
+    state->score     = 0;
+    state->shake     = false;
+    state->shakeTicks    = 0;
+    state->shakeMaxTicks = 0;
+    state->shakeDX       = 0;
+    state->shakeDY       = 0;
+    state->fieldLeft     = 0;
+    state->fieldTop      = 0;
+
+    gtk_widget_show_all(state->window);
+    gtk_widget_hide(state->restart_button);
+    gtk_widget_hide(state->score_label);
+    gtk_widget_hide(state->pause_label);
+
+    gtk_main();
+
+    delete state;
+    return 0;
 }
 
-void MainWindow::OnDraw(Context* cr) {
-    cr->SetColor(GetBackColor());
-    cr->FillRectangle(Point(0,0), GetInteriorSize());
-}
+// -------------------------------------------------
+//  СОБЫТИЯ
+// -------------------------------------------------
 
-bool MainWindow::OnKeyPress(uint64_t key) {
-    if (key=='q'){ DeleteMe(); return true; }
-    if (key==KEY_Return && (m_state==GameState::Menu || m_state==GameState::GameOver || m_state==GameState::Win)) { StartGame(); return true; }
-    if (key==KEY_Esc && (m_state==GameState::Playing || m_state==GameState::Paused)) { ShowMenu(); return true; }
-    return false;
-}
+static gboolean on_key_press(GtkWidget *widget, GdkEventKey *event, gpointer user_data)
+{
+    (void)widget;
+    GameState *state = static_cast<GameState *>(user_data);
+    guint key = event->keyval;
 
-void MainWindow::OnNotify(Window* child, uint32_t type, const Point&) {
-    if (child==m_btnStart && type==EVENT_START) { StartGame(); return; }
-    if (child==m_btnRetry && type==EVENT_RETRY) { StartGame(); return; }
-    if (child==m_board) {
-        if (type==EVENT_SCORE_CHANGED) UpdateScore(m_board->Score());
-        else if (type==EVENT_GAME_OVER) ShowEnd(false);
-        else if (type==EVENT_GAME_WIN)  ShowEnd(true);
+    if (key == 'q' || key == 'Q')
+    {
+        gtk_main_quit();
+        return TRUE;
     }
-}
 
-void MainWindow::ShowMenu() {
-    m_state = GameState::Menu;
-    SetBackColor(MENU_BG);
-    m_title->SetText(L"ЗМЕЙКА");
-    m_title->Show();
-    m_tip->SetText(L"Управление: стрелки — движение, P — пауза, Esc — меню");
-    m_tip->Show();
-    m_btnStart->Show();
-    m_btnRetry->Hide();
-    m_scoreText->Hide();
-    m_board->Hide();
-    CaptureKeyboard(this);
-    ReDraw();
-}
-
-void MainWindow::StartGame() {
-    m_state = GameState::Playing;
-    m_score = 0;
-    m_scoreText->SetText(L"Счёт: 0");
-    m_title->Hide(); m_tip->Hide();
-    m_btnStart->Hide(); m_btnRetry->Hide();
-    m_scoreText->Show();
-    m_board->Show();
-    m_board->Reset();
-    CaptureKeyboard(m_board);
-    ReDraw();
-}
-
-void MainWindow::ShowEnd(bool win) {
-    m_state = win ? GameState::Win : GameState::GameOver;
-    SetBackColor(MENU_BG);
-    m_board->Hide();
-    m_title->SetText(win ? L"ПОБЕДА!" : L"ИГРА ОКОНЧЕНА");
-    m_title->Show();
-    m_tip->SetText(L"Enter — сыграть ещё, Esc — меню");
-    m_tip->Show();
-    m_btnRetry->Show();
-    m_scoreText->Show();
-    CaptureKeyboard(this);
-    ReDraw();
-}
-
-void MainWindow::UpdateScore(int s) {
-    m_score = s;
-    wchar_t buf[64]; swprintf(buf,64,L"Счёт: %d", s);
-    m_scoreText->SetText(buf);
-    m_scoreText->ReDraw();
-}
-
-// ======================== Board ========================
-
-void Board::Reset() {
-    m_snake.clear();
-    int cx = GRID_W/2, cy = GRID_H/2;
-    m_snake.push_front(Point(cx,cy));
-    m_snake.push_back(Point(cx-1,cy));
-    m_snake.push_back(Point(cx-2,cy));
-    m_dir = Right; m_next = Right;
-    m_score = 0; m_paused = false;
-
-    SpawnFood();
-    CreateTimeout(this, m_stepMs);
-    ReDraw();
-}
-
-bool Board::OnKeyPress(uint64_t key) {
-    switch (key) {
-        case KEY_Up:    if (m_dir!=Down)  m_next=Up;    return true;
-        case KEY_Down:  if (m_dir!=Up)    m_next=Down;  return true;
-        case KEY_Left:  if (m_dir!=Right) m_next=Left;  return true;
-        case KEY_Right: if (m_dir!=Left)  m_next=Right; return true;
-        case 'p': case 'P': m_paused = !m_paused; return true;
-        default: return false;
+    if (state->inMenu)
+    {
+        if (key == GDK_KEY_Return || key == ' ')
+        {
+            StartGame(state);
+        }
+        return TRUE;
     }
-}
 
-bool Board::OnTimeout() {
-    if (!m_paused) { Step(); ReDraw(); }
-    return true;
-}
-
-void Board::SpawnFood() {
-    std::vector<Point> free;
-    free.reserve(GRID_W*GRID_H);
-    for (int y=0;y<GRID_H;++y)
-        for (int x=0;x<GRID_W;++x)
-            if (!Occupied(x,y)) free.push_back(Point(x,y));
-    if (free.empty()) { NotifyParent(EVENT_GAME_WIN, Point(0,0)); return; }
-    std::uniform_int_distribution<int> d(0,(int)free.size()-1);
-    m_food = free[d(m_rng)];
-}
-
-bool Board::Occupied(int x,int y) const {
-    for (auto& c : m_snake) if (c.x==x && c.y==y) return true;
-    return false;
-}
-
-void Board::Step() {
-    if (m_snake.empty()) return;
-
-    m_dir = m_next;
-    Point head = m_snake.front();
-    switch (m_dir){ case Up: --head.y; break; case Down: ++head.y; break; case Left: --head.x; break; case Right: ++head.x; break; }
-
-    if (head.x<0 || head.x>=GRID_W || head.y<0 || head.y>=GRID_H) { NotifyParent(EVENT_GAME_OVER, Point(0,0)); return; }
-    if (Occupied(head.x, head.y))                                  { NotifyParent(EVENT_GAME_OVER, Point(0,0)); return; }
-
-    m_snake.push_front(head);
-    if (head.x==m_food.x && head.y==m_food.y) {
-        m_score += 10;
-        NotifyParent(EVENT_SCORE_CHANGED, Point(0,0));
-        SpawnFood();
-    } else {
-        m_snake.pop_back();
+    if ((key == 'p' || key == 'P') && !state->gameOver)
+    {
+        state->paused = !state->paused;
+        LayoutPause(state);
+        gtk_widget_queue_draw(state->drawing_area);
+        return TRUE;
     }
-}
 
-void Board::DrawEyes(Context* cr) const {
-    if (m_snake.empty()) return;
-    Point h = m_snake.front();
-    int x = h.x*CELL, y = h.y*CELL;
-    int r = CELL/6;
-    int pad = CELL/6;
-
-    int ex1, ey1, ex2, ey2;
-    switch (m_dir) {
-        case Right: ex1=x+CELL-pad-r*2; ey1=y+pad;          ex2=x+CELL-pad-r*2; ey2=y+CELL-pad-r*2; break;
-        case Left:  ex1=x+pad;          ey1=y+pad;          ex2=x+pad;          ey2=y+CELL-pad-r*2; break;
-        case Up:    ex1=x+pad;          ey1=y+pad;          ex2=x+CELL-pad-r*2; ey2=y+pad;          break;
-        case Down:  ex1=x+pad;          ey1=y+CELL-pad-r*2; ex2=x+CELL-pad-r*2; ey2=y+CELL-pad-r*2; break;
-    }
-    cr->SetColor(RGB(0,0,0));
-    cr->FillEllipse(Point(ex1,ey1), Rect(r*2,r*2));
-    cr->FillEllipse(Point(ex2,ey2), Rect(r*2,r*2));
-}
-
-void Board::DrawFood(Context* cr) const {
-    // «клубника» без PNG: красный круг + маленький зелёный листик
-    int x = m_food.x*CELL, y = m_food.y*CELL;
-    int r = (int)(CELL*0.36);
-    int cx = x + CELL/2 - r;
-    int cy = y + CELL/2 - r;
-
-    cr->SetColor(FOOD_RED);
-    cr->FillEllipse(Point(cx,cy), Rect(r*2, r*2));
-
-    // листик/хвостик
-    cr->SetColor(FOOD_GREEN);
-    int lw = r, lh = r/2;
-    cr->FillRectangle(Point(x + CELL/2 - lw/2, y + CELL/2 - r - lh/2), Rect(lw, lh));
-}
-
-void Board::OnDraw(Context* cr) {
-    // шахматная зелёная сетка
-    for (int y=0;y<GRID_H;++y){
-        for (int x=0;x<GRID_W;++x){
-            bool light = ((x+y)&1)==0;
-            cr->SetColor(light ? FIELD_LIGHT : FIELD_DARK);
-            cr->FillRectangle(Point(x*CELL,y*CELL), Rect(CELL,CELL));
+    if (!state->gameOver && !state->paused)
+    {
+        switch (key)
+        {
+            case GDK_KEY_Up:
+                if (state->dir != DIR_DOWN) state->dir = DIR_UP;
+                break;
+            case GDK_KEY_Down:
+                if (state->dir != DIR_UP) state->dir = DIR_DOWN;
+                break;
+            case GDK_KEY_Left:
+                if (state->dir != DIR_RIGHT) state->dir = DIR_LEFT;
+                break;
+            case GDK_KEY_Right:
+                if (state->dir != DIR_LEFT) state->dir = DIR_RIGHT;
+                break;
+            default:
+                ;
         }
     }
+    return TRUE;
+}
 
-    // еда
-    DrawFood(cr);
+static gboolean on_button_press(GtkWidget *widget, GdkEventButton *, gpointer user_data)
+{
+    GameState *state = static_cast<GameState *>(user_data);
+    gtk_widget_grab_focus(widget);
+    return TRUE;
+}
 
-    // тело
-    for (size_t i=1;i<m_snake.size();++i){
-        cr->SetColor(SNAKE_BODY);
-        cr->FillRectangle(Point(m_snake[i].x*CELL+1, m_snake[i].y*CELL+1), Rect(CELL-2, CELL-2));
+static gboolean on_timeout(gpointer user_data)
+{
+    GameState *state = static_cast<GameState *>(user_data);
+
+    if (!state->inMenu && !state->gameOver && !state->paused)
+    {
+        MoveSnake(state);
+        CheckCollision(state);
+        gtk_widget_queue_draw(state->drawing_area);
     }
-    // голова + глазки
-    if (!m_snake.empty()){
-        cr->SetColor(SNAKE_HEAD);
-        cr->FillRectangle(Point(m_snake.front().x*CELL+1, m_snake.front().y*CELL+1), Rect(CELL-2, CELL-2));
-        DrawEyes(cr);
+    else if (!state->inMenu && state->gameOver && state->shake)
+    {
+        state->shakeTicks++;
+        state->shakeDX = (std::rand() % 7) - 3;
+        state->shakeDY = 0;
+
+        if (state->shakeTicks >= state->shakeMaxTicks)
+        {
+            state->shake = false;
+            state->shakeDX = 0;
+            state->shakeDY = 0;
+        }
+        gtk_widget_queue_draw(state->drawing_area);
+    }
+    return TRUE;
+}
+
+static void on_start(GtkButton *, gpointer user_data)
+{
+    StartGame(static_cast<GameState *>(user_data));
+}
+
+static void on_restart(GtkButton *, gpointer user_data)
+{
+    StartGame(static_cast<GameState *>(user_data));
+}
+
+// -------------------------------------------------
+//  ЛОГИКА
+// -------------------------------------------------
+
+static void StartGame(GameState *state)
+{
+    state->inMenu   = false;
+    state->gameOver = false;
+    state->paused   = false;
+    state->score    = 0;
+
+    gtk_label_set_markup(GTK_LABEL(state->title_label),
+                         "<span font_desc=\"32\" weight=\"bold\">ЗМЕЙКА</span>");
+    gtk_widget_show(state->score_label);
+    gtk_widget_hide(state->restart_button);
+    gtk_widget_hide(state->pause_label);
+    gtk_widget_hide(state->start_button);
+    LayoutPause(state);
+    UpdateScore(state);
+
+    state->shake         = false;
+    state->shakeTicks    = 0;
+    state->shakeMaxTicks = 0;
+    state->shakeDX       = 0;
+    state->shakeDY       = 0;
+
+    int cx = GRID_W / 2;
+    int cy = GRID_H / 2;
+    state->snakeLen = 3;
+    state->snakeX[0] = cx;
+    state->snakeY[0] = cy;
+    state->snakeX[1] = cx - 1;
+    state->snakeY[1] = cy;
+    state->snakeX[2] = cx - 2;
+    state->snakeY[2] = cy;
+
+    state->dir = DIR_RIGHT;
+
+    PlaceFood(state);
+
+    gtk_widget_grab_focus(state->drawing_area);
+    gtk_widget_queue_draw(state->drawing_area);
+}
+
+static void GameOver(GameState *state)
+{
+    if (state->gameOver) return;
+
+    state->gameOver = true;
+    gtk_label_set_markup(GTK_LABEL(state->title_label),
+                         "<span font_desc=\"32\" weight=\"bold\">ПРОИГРЫШ</span>");
+    gtk_widget_show(state->restart_button);
+    gtk_widget_hide(state->pause_label);
+
+    state->shake         = true;
+    state->shakeTicks    = 0;
+    state->shakeMaxTicks = 25;
+    state->shakeDX       = 0;
+    state->shakeDY       = 0;
+
+    gtk_widget_queue_draw(state->drawing_area);
+}
+
+static void PlaceFood(GameState *state)
+{
+    while (true)
+    {
+        state->foodX = std::rand() % GRID_W;
+        state->foodY = std::rand() % GRID_H;
+
+        bool clash = false;
+        for (int i = 0; i < state->snakeLen; ++i)
+        {
+            if (state->snakeX[i] == state->foodX && state->snakeY[i] == state->foodY)
+            {
+                clash = true;
+                break;
+            }
+        }
+        if (!clash) break;
     }
 }
 
-// ----------------------- main ------------------------
-int main(int argc, char** argv){
-    MainWindow* w = new MainWindow;
-    int res = Run(argc, argv, w, WIN_W, WIN_H);   // 400×300
-    delete w;
-    return res;
+static void MoveSnake(GameState *state)
+{
+    int oldTailX = state->snakeX[state->snakeLen - 1];
+    int oldTailY = state->snakeY[state->snakeLen - 1];
+
+    for (int i = state->snakeLen - 1; i > 0; --i)
+    {
+        state->snakeX[i] = state->snakeX[i - 1];
+        state->snakeY[i] = state->snakeY[i - 1];
+    }
+
+    switch (state->dir)
+    {
+        case DIR_UP:    state->snakeY[0]--; break;
+        case DIR_DOWN:  state->snakeY[0]++; break;
+        case DIR_LEFT:  state->snakeX[0]--; break;
+        case DIR_RIGHT: state->snakeX[0]++; break;
+    }
+
+    if (state->snakeX[0] == state->foodX && state->snakeY[0] == state->foodY)
+    {
+        if (state->snakeLen < GRID_W * GRID_H)
+        {
+            state->snakeX[state->snakeLen] = oldTailX;
+            state->snakeY[state->snakeLen] = oldTailY;
+            state->snakeLen++;
+        }
+        state->score += 10;
+        UpdateScore(state);
+        PlaceFood(state);
+    }
 }
 
+static void CheckCollision(GameState *state)
+{
+    if (state->snakeX[0] < 0 || state->snakeX[0] >= GRID_W ||
+        state->snakeY[0] < 0 || state->snakeY[0] >= GRID_H)
+    {
+        GameOver(state);
+        return;
+    }
+
+    for (int i = 1; i < state->snakeLen; ++i)
+    {
+        if (state->snakeX[i] == state->snakeX[0] &&
+            state->snakeY[i] == state->snakeY[0])
+        {
+            GameOver(state);
+            return;
+        }
+    }
+}
+
+static void UpdateScore(GameState *state)
+{
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "<span font_desc=\"20\">score: %d</span>", state->score);
+    gtk_label_set_markup(GTK_LABEL(state->score_label), buf);
+}
+
+static void LayoutPause(GameState *state)
+{
+    if (state->paused) gtk_widget_show(state->pause_label);
+    else               gtk_widget_hide(state->pause_label);
+}
+
+// -------------------------------------------------
+//  ОТРИСОВКА
+// -------------------------------------------------
+
+static void ComputeFieldPosition(GameState *state, GtkWidget *widget)
+{
+    GtkAllocation alc;
+    gtk_widget_get_allocation(widget, &alc);
+
+    int winW = alc.width;
+    int winH = alc.height;
+
+    int centeredTop = (winH - FIELD_H) / 2;
+    if (centeredTop < 10) centeredTop = 10;
+    state->fieldTop = centeredTop;
+
+    state->fieldLeft = (winW - FIELD_W) / 2;
+    if (state->fieldLeft < 10) state->fieldLeft = 10;
+}
+
+static gboolean on_draw(GtkWidget *widget, cairo_t *cr, gpointer user_data)
+{
+    GameState *state = static_cast<GameState *>(user_data);
+    CairoContext ctx(cr);
+
+    GtkAllocation alc;
+    gtk_widget_get_allocation(widget, &alc);
+    Rect r(alc.width, alc.height);
+
+    ctx.SetColor(COL_WINDOW_BG);
+    ctx.FillRectangle(Point(0, 0), r);
+
+    if (state->inMenu)
+    {
+        return TRUE;
+    }
+
+    ComputeFieldPosition(state, widget);
+
+    DrawField(state, &ctx);
+    DrawSnake(state, &ctx);
+    DrawFood(state, &ctx);
+
+    return TRUE;
+}
+
+static void DrawField(GameState *state, Context *cr)
+{
+    int baseLeft = state->fieldLeft + state->shakeDX;
+    int baseTop  = state->fieldTop  + state->shakeDY;
+
+    cr->SetColor(COL_FIELD_FRAME);
+    cr->FillRectangle(Point(baseLeft - 2, baseTop - 2), Rect(FIELD_W + 4, 2));
+    cr->FillRectangle(Point(baseLeft - 2, baseTop + FIELD_H), Rect(FIELD_W + 4, 2));
+    cr->FillRectangle(Point(baseLeft - 2, baseTop - 2), Rect(2, FIELD_H + 4));
+    cr->FillRectangle(Point(baseLeft + FIELD_W, baseTop - 2), Rect(2, FIELD_H + 4));
+
+    for (int y = 0; y < GRID_H; ++y)
+    {
+        for (int x = 0; x < GRID_W; ++x)
+        {
+            RGB col = ((x + y) % 2 == 0) ? COL_FIELD_LIGHT : COL_FIELD_DARK;
+            int px = baseLeft + x * CELL;
+            int py = baseTop  + y * CELL;
+
+            cr->SetColor(col);
+            cr->FillRectangle(Point(px, py), Rect(CELL, CELL));
+        }
+    }
+}
+
+static void DrawSnake(GameState *state, Context *cr)
+{
+    int baseLeft = state->fieldLeft + state->shakeDX;
+    int baseTop  = state->fieldTop  + state->shakeDY;
+
+    for (int i = 1; i < state->snakeLen; ++i)
+    {
+        int px = baseLeft + state->snakeX[i] * CELL;
+        int py = baseTop  + state->snakeY[i] * CELL;
+
+        cr->SetColor(COL_SNAKE_BODY);
+        cr->FillRectangle(Point(px + 1, py + 1), Rect(CELL - 2, CELL - 2));
+    }
+
+    int hx = baseLeft + state->snakeX[0] * CELL;
+    int hy = baseTop  + state->snakeY[0] * CELL;
+
+    cr->SetColor(COL_SNAKE_HEAD);
+    cr->FillRectangle(Point(hx + 1, hy + 1), Rect(CELL - 2, CELL - 2));
+
+    int eyeSize = 4;
+    int margin  = 5;
+    int midX    = hx + CELL / 2;
+    int midY    = hy + CELL / 2;
+    int eyeGap  = 6; // увеличиваем расстояние между глазами
+
+    cr->SetColor(RGB(0.0, 0.0, 0.0));
+
+    switch (state->dir)
+    {
+        case DIR_RIGHT:
+        {
+            int ex  = hx + CELL - margin - eyeSize;
+            int ey1 = midY - eyeSize - eyeGap / 2;
+            int ey2 = midY + eyeGap / 2;
+            cr->FillRectangle(Point(ex, ey1), Rect(eyeSize, eyeSize));
+            cr->FillRectangle(Point(ex, ey2), Rect(eyeSize, eyeSize));
+            break;
+        }
+        case DIR_LEFT:
+        {
+            int ex  = hx + margin;
+            int ey1 = midY - eyeSize - eyeGap / 2;
+            int ey2 = midY + eyeGap / 2;
+            cr->FillRectangle(Point(ex, ey1), Rect(eyeSize, eyeSize));
+            cr->FillRectangle(Point(ex, ey2), Rect(eyeSize, eyeSize));
+            break;
+        }
+        case DIR_UP:
+        {
+            int ey  = hy + margin;
+            int ex1 = midX - eyeSize - eyeGap / 2;
+            int ex2 = midX + eyeGap / 2;
+            cr->FillRectangle(Point(ex1, ey), Rect(eyeSize, eyeSize));
+            cr->FillRectangle(Point(ex2, ey), Rect(eyeSize, eyeSize));
+            break;
+        }
+        case DIR_DOWN:
+        {
+            int ey  = hy + CELL - margin - eyeSize;
+            int ex1 = midX - eyeSize - eyeGap / 2;
+            int ex2 = midX + eyeGap / 2;
+            cr->FillRectangle(Point(ex1, ey), Rect(eyeSize, eyeSize));
+            cr->FillRectangle(Point(ex2, ey), Rect(eyeSize, eyeSize));
+            break;
+        }
+    }
+}
+
+static void DrawBerry(Context *cr, int cx, int cy, int size)
+{
+    int rx = size / 2 - 4;
+    int ry = size / 2;
+
+    const int N = 32;
+    Point pts[N];
+
+    for (int i = 0; i < N; ++i)
+    {
+        double angle = 2.0 * M_PI * i / N;
+        double ca = std::cos(angle);
+        double sa = std::sin(angle);
+
+        double x, y;
+
+        if (sa < 0)
+        {
+            x = cx + rx * ca * 0.8;
+            y = cy + ry * sa * 0.35;
+        }
+        else
+        {
+            x = cx + rx * ca * 1.05;
+            y = cy + ry * sa * 1.15;
+        }
+
+        pts[i] = Point((int)x, (int)y);
+    }
+
+    cr->SetColor(COL_FOOD);
+    cr->FillPolyline(N, pts);
+
+    int topY = cy - ry * 0.5;
+    Point leaf[3];
+    leaf[0] = Point(cx - 7, topY + 3);
+    leaf[1] = Point(cx + 7, topY + 3);
+    leaf[2] = Point(cx,     topY - 6);
+    cr->SetColor(RGB(0.0, 0.6, 0.0));
+    cr->FillPolyline(3, leaf);
+
+    cr->FillRectangle(Point(cx - 1, topY - 8), Rect(2, 5));
+
+    cr->SetColor(RGB(1.0, 0.95, 0.6));
+    // Разбрасываем семечки равномерно по площади ягоды (немного смещаем по рядам)
+    const double rowY[] = { -0.35, -0.1, 0.15, 0.40 };
+    const double rowX[] = { -0.45, -0.15, 0.15, 0.45 };
+    for (size_t iy = 0; iy < sizeof(rowY)/sizeof(rowY[0]); ++iy)
+    {
+        for (size_t ix = 0; ix < sizeof(rowX)/sizeof(rowX[0]); ++ix)
+        {
+            double jitter = ((iy + ix) % 2 == 0) ? 1.0 : -1.0;
+            int sx = static_cast<int>(cx + rowX[ix] * rx + jitter);
+            int sy = static_cast<int>(cy + rowY[iy] * ry + jitter * 0.5);
+            cr->FillRectangle(Point(sx, sy), Rect(2, 2));
+        }
+    }
+}
+
+static void DrawFood(GameState *state, Context *cr)
+{
+    int baseLeft = state->fieldLeft + state->shakeDX;
+    int baseTop  = state->fieldTop  + state->shakeDY;
+
+    int cellX = baseLeft + state->foodX * CELL;
+    int cellY = baseTop  + state->foodY * CELL;
+
+    int cx = cellX + CELL / 2;
+    int cy = cellY + CELL / 2 + 2;
+
+    DrawBerry(cr, cx, cy, CELL);
+}
