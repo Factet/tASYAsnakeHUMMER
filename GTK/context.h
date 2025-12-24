@@ -1,5 +1,7 @@
 // context.h
 
+#include "mytypes.h"
+
 // стили текста
 #define TEXT_STYLE_BOLD         0x01
 #define TEXT_STYLE_ITALIC       0x02
@@ -99,4 +101,3 @@ private:
     RGB      m_color;
     uint16_t m_width;
 };
-
