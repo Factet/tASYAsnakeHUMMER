@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+<CodeBlocks_project_file>
+	<FileVersion major="1" minor="6" />
+	<Project>
+		<Option title="gui3.1" />
+		<Option pch_mode="2" />
+		<Option compiler="gcc" />
+		<Build>
+			<Target title="Debug">
+				<Option output="bin/Debug/gui" prefix_auto="1" extension_auto="1" />
+				<Option object_output="obj/Debug/" />
+				<Option type="1" />
+				<Option compiler="gcc" />
+				<Compiler>
+					<Add option="-g" />
+				</Compiler>
+			</Target>
+		</Build>
+		<Compiler>
+			<Add option="-Wall" />
+			<Add option="-fexceptions" />
+		</Compiler>
+		<Unit filename="examples/browse.cc" />
+		<Unit filename="examples/bspline.cc" />
+		<Unit filename="examples/bspline2d.cc" />
+		<Unit filename="examples/bspline2d.h" />
+		<Unit filename="examples/calc.cc" />
+		<Unit filename="examples/clock.cc" />
+		<Unit filename="examples/digit7.cc" />
+		<Unit filename="examples/digit7.h" />
+		<Unit filename="examples/myprog.cc" />
+		<Unit filename="examples/myprog.h" />
+		<Unit filename="examples/quad.cc" />
+		<Unit filename="examples/view.cc" />
+		<Unit filename="include/GUI.h" />
+		<Unit filename="include/button.h" />
+		<Unit filename="include/context.h" />
+		<Unit filename="include/edit.h" />
+		<Unit filename="include/image.h" />
+		<Unit filename="include/list.h" />
+		<Unit filename="include/mytypes.h" />
+		<Unit filename="include/scroll.h" />
+		<Unit filename="include/text.h" />
+		<Unit filename="include/window.h" />
+		<Unit filename="source/GUI.cc" />
+		<Unit filename="source/button.cc" />
+		<Unit filename="source/edit.cc" />
+		<Unit filename="source/image.cc" />
+		<Unit filename="source/list.cc" />
+		<Unit filename="source/scroll.cc" />
+		<Unit filename="source/text.cc" />
+		<Unit filename="source/window.cc" />
+		<Extensions>
+			<lib_finder disable_auto="1" />
+		</Extensions>
+	</Project>
+</CodeBlocks_project_file>
