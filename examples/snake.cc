@@ -548,6 +548,7 @@ static void DrawSnake(GameState *state, Context *cr)
     int margin  = 5;
     int midX    = hx + CELL / 2;
     int midY    = hy + CELL / 2;
+    int eyeGap  = 6; // увеличиваем расстояние между глазами
 
     cr->SetColor(RGB(0.0, 0.0, 0.0));
 
@@ -556,8 +557,8 @@ static void DrawSnake(GameState *state, Context *cr)
         case DIR_RIGHT:
         {
             int ex  = hx + CELL - margin - eyeSize;
-            int ey1 = midY - eyeSize - 1;
-            int ey2 = midY + 1;
+            int ey1 = midY - eyeSize - eyeGap / 2;
+            int ey2 = midY + eyeGap / 2;
             cr->FillRectangle(Point(ex, ey1), Rect(eyeSize, eyeSize));
             cr->FillRectangle(Point(ex, ey2), Rect(eyeSize, eyeSize));
             break;
@@ -565,8 +566,8 @@ static void DrawSnake(GameState *state, Context *cr)
         case DIR_LEFT:
         {
             int ex  = hx + margin;
-            int ey1 = midY - eyeSize - 1;
-            int ey2 = midY + 1;
+            int ey1 = midY - eyeSize - eyeGap / 2;
+            int ey2 = midY + eyeGap / 2;
             cr->FillRectangle(Point(ex, ey1), Rect(eyeSize, eyeSize));
             cr->FillRectangle(Point(ex, ey2), Rect(eyeSize, eyeSize));
             break;
@@ -574,8 +575,8 @@ static void DrawSnake(GameState *state, Context *cr)
         case DIR_UP:
         {
             int ey  = hy + margin;
-            int ex1 = midX - eyeSize - 1;
-            int ex2 = midX + 1;
+            int ex1 = midX - eyeSize - eyeGap / 2;
+            int ex2 = midX + eyeGap / 2;
             cr->FillRectangle(Point(ex1, ey), Rect(eyeSize, eyeSize));
             cr->FillRectangle(Point(ex2, ey), Rect(eyeSize, eyeSize));
             break;
@@ -583,8 +584,8 @@ static void DrawSnake(GameState *state, Context *cr)
         case DIR_DOWN:
         {
             int ey  = hy + CELL - margin - eyeSize;
-            int ex1 = midX - eyeSize - 1;
-            int ex2 = midX + 1;
+            int ex1 = midX - eyeSize - eyeGap / 2;
+            int ex2 = midX + eyeGap / 2;
             cr->FillRectangle(Point(ex1, ey), Rect(eyeSize, eyeSize));
             cr->FillRectangle(Point(ex2, ey), Rect(eyeSize, eyeSize));
             break;
@@ -636,13 +637,18 @@ static void DrawBerry(Context *cr, int cx, int cy, int size)
     cr->FillRectangle(Point(cx - 1, topY - 8), Rect(2, 5));
 
     cr->SetColor(RGB(1.0, 0.95, 0.6));
-    for (int i = -2; i <= 2; ++i)
+    // Разбрасываем семечки равномерно по площади ягоды (немного смещаем по рядам)
+    const double rowY[] = { -0.35, -0.1, 0.15, 0.40 };
+    const double rowX[] = { -0.45, -0.15, 0.15, 0.45 };
+    for (size_t iy = 0; iy < sizeof(rowY)/sizeof(rowY[0]); ++iy)
     {
-        int sx1 = cx + i * 4;
-        int sy1 = cy + 3;
-        int sy2 = cy + 8;
-        cr->FillRectangle(Point(sx1, sy1), Rect(2, 2));
-        cr->FillRectangle(Point(sx1 + 2, sy2), Rect(2, 2));
+        for (size_t ix = 0; ix < sizeof(rowX)/sizeof(rowX[0]); ++ix)
+        {
+            double jitter = ((iy + ix) % 2 == 0) ? 1.0 : -1.0;
+            int sx = static_cast<int>(cx + rowX[ix] * rx + jitter);
+            int sy = static_cast<int>(cy + rowY[iy] * ry + jitter * 0.5);
+            cr->FillRectangle(Point(sx, sy), Rect(2, 2));
+        }
     }
 }
 
